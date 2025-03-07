@@ -9,12 +9,14 @@ function App() {
     const [messageInput, setMessageInput] = useState("");
     const socket = useRef(null);
     const [participant, setParticipant] = useState(
-        localStorage.getItem("participant") || undefined
+        localStorage.getItem("participant")
+            ? Number(localStorage.getItem("participant"))
+            : undefined
     );
 
     const [translatedMessages, setTranslatedMessages] = useState([]);
     const [preferredLanguage, setPreferredLanguage] = useState(
-        localStorage.getItem("preferredLanguage") || "English"
+        localStorage.getItem("preferredLanguage") || "en-US"
     );
 
     const [showTranslatePopover, setShowTranslatePopover] = useState(false);
@@ -71,8 +73,6 @@ function App() {
             })
                 .then((res) => res.json())
                 .then((data) => {
-                    console.log("Message sent to API:", data);
-
                     if (data && data.translated_content) {
                         return data.translated_content;
                     }
@@ -93,10 +93,8 @@ function App() {
 
         socket.current.onmessage = async (event) => {
             const msg = JSON.parse(event.data);
-            console.log("got my new message!", msg);
 
             const newMessage = JSON.parse(msg["utf8Data"]);
-            console.log("usernames", newMessage.username, participant);
             if (newMessage.username === participant) {
                 setTranslatedMessages([
                     ...translatedMessages,
@@ -124,7 +122,6 @@ function App() {
         fetch(`http://localhost:3005/messages?chatId=${chatId}`)
             .then((res) => res.json())
             .then((data) => {
-                console.log('funny dat', data);
                 fetch(
                     `https://api.getquetzal.com/api/chat/log?chat_id=${chatId}`,
                     {
@@ -149,12 +146,22 @@ function App() {
                                 ])
                             );
 
+                            const translatedLocalesMap = new Map(
+                                response.messages.map((msg) => [
+                                    msg.content,
+                                    msg.translated_locale || "en-US", // Fallback to original content
+                                ])
+                            );
+
                             const updatedTranslatedMessages = data.map(
                                 (message) => ({
                                     ...message, // Maintain the rest of the message object
                                     text:
-                                        translatedMap.get(message.text) ||
-                                        message.text, // Replace only content
+                                        translatedLocalesMap.get(
+                                            message.text
+                                        ) === preferredLanguage
+                                            ? translatedMap.get(message.text)
+                                            : message.text, // Replace only content
                                 })
                             );
 
@@ -172,7 +179,7 @@ function App() {
                     );
             })
             .catch((err) => console.error("Error fetching messages:", err));
-    }, [chatId]);
+    }, [chatId, preferredLanguage]);
 
     useEffect(() => {
         if (chatId) {
@@ -201,13 +208,7 @@ function App() {
     const formatTime = (timestamp) => {
         if (!timestamp) return "";
         const date = new Date(timestamp);
-        const localeMap = {
-            English: "en-US",
-            Spanish: "es-ES",
-            Portuguese: "pt-PT",
-            "Chinese (Simplified)": "zh-CN",
-        };
-        const locale = localeMap[preferredLanguage] || "en-US";
+        const locale = preferredLanguage || "en-US";
         return new Intl.DateTimeFormat(locale, {
             hour: "numeric",
             minute: "numeric",
@@ -247,12 +248,10 @@ function App() {
                         value={tempLanguage}
                         onChange={(e) => setTempLanguage(e.target.value)}
                     >
-                        <option value="English">English</option>
-                        <option value="Spanish">Spanish</option>
-                        <option value="Portuguese">Portuguese</option>
-                        <option value="Chinese (Simplified)">
-                            Chinese (Simplified)
-                        </option>
+                        <option value="en-US">English</option>
+                        <option value="es-ES">Spanish</option>
+                        <option value="pt-PT">Portuguese</option>
+                        <option value="zh-CN">Chinese (Simplified)</option>
                     </select>
                     <label>
                         <input
@@ -304,7 +303,8 @@ function App() {
                             {translatedMessages.map((message, index) => (
                                 <div
                                     className={`message ${
-                                        message["username"] === participant
+                                        Number(message["username"]) ===
+                                        participant
                                             ? "sent"
                                             : "received"
                                     }`}
