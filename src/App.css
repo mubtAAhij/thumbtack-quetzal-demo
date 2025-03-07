@@ -123,6 +123,11 @@ body {
     border-top: 1px solid #ddd;
     background: white;
   }
+
+  .chat-input-login {
+    flex-direction: column;
+    gap: 8px;
+  }
   
   .chat-input input {
     flex: 1;

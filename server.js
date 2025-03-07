@@ -9,6 +9,7 @@ const Message = sequelize.define("Message", {
     username: Sequelize.DataTypes.STRING,
     text: Sequelize.DataTypes.STRING,
     timestamp: Sequelize.DataTypes.DATE,
+    chatId: Sequelize.DataTypes.STRING,
 });
 
 sequelize
@@ -25,11 +26,16 @@ sequelize
 function createServer() {
     const httpServer = http.Server((req, res) => {
         cors()(req, res, () => {
-            if (req.url === "/messages") {
-                fetchMessages().then((messages) => {
-                    res.writeHead(200, {
-                        "Content-Type": "application/json",
-                    });
+            const url = new URL(req.url, `http://${req.headers.host}`);
+            if (url.pathname === "/messages") {
+                const chatId = url.searchParams.get("chatId");
+                if (!chatId) {
+                    res.writeHead(400, { "Content-Type": "application/json" });
+                    res.end(JSON.stringify({ error: "chatId is required" }));
+                    return;
+                }
+                fetchMessages(chatId).then((messages) => {
+                    res.writeHead(200, { "Content-Type": "application/json" });
                     res.end(JSON.stringify(messages));
                 });
             }
@@ -49,6 +55,7 @@ function createServer() {
                 username: msg.username,
                 text: msg.text,
                 timestamp: msg.timestamp,
+                chatId: msg.chatId,
             });
             webSocketServer.broadcast(JSON.stringify(message));
         });
@@ -61,6 +68,6 @@ function createServer() {
     httpServer.listen(3005, () => console.log("Listening on port 3005"));
 }
 
-function fetchMessages() {
-    return Message.findAll();
+function fetchMessages(chatId) {
+    return Message.findAll({ where: { chatId } });
 }

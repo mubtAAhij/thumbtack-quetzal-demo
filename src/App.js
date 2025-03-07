@@ -2,19 +2,17 @@ import "./App.css";
 import { useEffect, useState, useRef, useCallback } from "react";
 
 function App() {
-    const [messages, setMessages] = useState([]);
+    const [tempChatId, setTempChatId] = useState("");
+    const [chatId, setChatId] = useState(
+        localStorage.getItem("chatId") || undefined
+    );
     const [messageInput, setMessageInput] = useState("");
     const socket = useRef(null);
-    const [username, setUsername] = useState("");
-    const [existingUserName, setExistingUsername] = useState(
-        localStorage.getItem("username") || ""
+    const [participant, setParticipant] = useState(
+        localStorage.getItem("participant") || undefined
     );
 
     const [translatedMessages, setTranslatedMessages] = useState([]);
-
-    const [translationEnabled, setTranslationEnabled] = useState(
-        JSON.parse(localStorage.getItem("translationEnabled")) || false
-    );
     const [preferredLanguage, setPreferredLanguage] = useState(
         localStorage.getItem("preferredLanguage") || "English"
     );
@@ -23,32 +21,68 @@ function App() {
     const [tempLanguage, setTempLanguage] = useState(preferredLanguage);
     const [saveChoice, setSaveChoice] = useState(false);
 
-    const sendForTranslation = useCallback((message) => {
-        return fetch("https://api.getquetzal.com/api/chat/message", {
+    const createChat = useCallback(() => {
+        return fetch("https://api.getquetzal.com/api/chat/new", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 "api-key": "QTZL_2V266U004U857OOISBY1M8",
             },
             body: JSON.stringify({
-                content: message.text,
-                participant: preferredLanguage === 'Portuguese' ? 1 : 0, // Hardcoded
-                timestamp: message.timestamp,
-                chat_id: "QTZLC0000005",
+                participants: [
+                    { locale: "en-US", role: "User" },
+                    {
+                        locale: "pt-PT",
+                        role: "Pro",
+                    },
+                ],
             }),
         })
             .then((res) => res.json())
             .then((data) => {
-                console.log("Message sent to API:", data);
+                console.log("New chat created:", data);
 
-                if (data && data.translated_content) {
-                    return data.translated_content;
+                if (data && data.chat_id) {
+                    setChatId(data.chat_id);
+                    localStorage.setItem("chatId", data.chat_id);
+                } else {
+                    console.error("API error for creating new chat");
                 }
             })
             .catch((err) =>
                 console.error("Error sending message to API:", err)
             );
-    }, [preferredLanguage]);
+    }, []);
+
+    const sendForTranslation = useCallback(
+        (message) => {
+            return fetch("https://api.getquetzal.com/api/chat/message", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "api-key": "QTZL_2V266U004U857OOISBY1M8",
+                },
+                body: JSON.stringify({
+                    content: message.text,
+                    participant: Number(message.username),
+                    timestamp: message.timestamp,
+                    chat_id: chatId,
+                }),
+            })
+                .then((res) => res.json())
+                .then((data) => {
+                    console.log("Message sent to API:", data);
+
+                    if (data && data.translated_content) {
+                        return data.translated_content;
+                    }
+                })
+                .catch((err) =>
+                    console.error("Error sending message to API:", err)
+                );
+        },
+        [chatId]
+    );
 
     useEffect(() => {
         socket.current = new WebSocket("ws://localhost:3005");
@@ -62,16 +96,14 @@ function App() {
             console.log("got my new message!", msg);
 
             const newMessage = JSON.parse(msg["utf8Data"]);
-            console.log("usernames", newMessage.username, existingUserName);
-            if (newMessage.username === existingUserName) {
-                setMessages([...messages, JSON.parse(msg["utf8Data"])]);
+            console.log("usernames", newMessage.username, participant);
+            if (newMessage.username === participant) {
                 setTranslatedMessages([
                     ...translatedMessages,
                     JSON.parse(msg["utf8Data"]),
                 ]);
             } else {
                 const utf8Data = JSON.parse(msg["utf8Data"]);
-                setMessages([...messages, utf8Data]);
 
                 const translatedMessageContent = await sendForTranslation(
                     newMessage
@@ -86,14 +118,15 @@ function App() {
         return () => {
             socket.current.close();
         };
-    }, [existingUserName, messages, sendForTranslation, translatedMessages]);
+    }, [participant, sendForTranslation, translatedMessages]);
 
     const fetchMessages = useCallback(() => {
-        fetch("http://localhost:3005/messages")
+        fetch(`http://localhost:3005/messages?chatId=${chatId}`)
             .then((res) => res.json())
             .then((data) => {
+                console.log('funny dat', data);
                 fetch(
-                    "https://api.getquetzal.com/api/chat/log?chat_id=QTZLC0000005",
+                    `https://api.getquetzal.com/api/chat/log?chat_id=${chatId}`,
                     {
                         method: "GET",
                         headers: {
@@ -128,9 +161,7 @@ function App() {
                             setTranslatedMessages(updatedTranslatedMessages);
                         } else {
                             // If no response messages, default to original messages while maintaining object structure
-                            setTranslatedMessages(
-                                data.map((msg) => ({ ...msg }))
-                            );
+                            setTranslatedMessages([]);
                         }
                     })
                     .catch((err) =>
@@ -139,15 +170,15 @@ function App() {
                             err
                         )
                     );
-
-                setMessages(data);
             })
             .catch((err) => console.error("Error fetching messages:", err));
-    }, []);
+    }, [chatId]);
 
     useEffect(() => {
-        fetchMessages();
-    }, [fetchMessages]);
+        if (chatId) {
+            fetchMessages();
+        }
+    }, [chatId, fetchMessages]);
 
     const sendMessage = useCallback(() => {
         if (messageInput.trim() === "") {
@@ -156,15 +187,16 @@ function App() {
 
         const message = {
             text: messageInput,
-            username: existingUserName,
+            username: participant,
             timestamp: new Date().toISOString(),
+            chatId,
         };
 
         // Send message via WebSocket
         socket.current.send(JSON.stringify(message));
 
         setMessageInput("");
-    }, [existingUserName, messageInput]);
+    }, [chatId, messageInput, participant]);
 
     const formatTime = (timestamp) => {
         if (!timestamp) return "";
@@ -252,18 +284,27 @@ function App() {
                 </div>
             )}
 
-            {existingUserName ? (
+            {!!chatId ? (
                 <div>
+                    <button
+                        onClick={() => {
+                            setChatId(undefined);
+                        }}
+                    >
+                        Back
+                    </button>
+                    <p>
+                        You are logged in as:{" "}
+                        {participant === 0 ? "User" : "Pro"}
+                    </p>
+                    <p>Your chat ID is: {chatId}</p>
                     {/* Chat Container */}
                     <div className="chat-container">
                         <div className="chat-messages">
-                            {(translatedMessages.length && preferredLanguage === 'Portuguese'
-                                ? translatedMessages
-                                : messages
-                            ).map((message, index) => (
+                            {translatedMessages.map((message, index) => (
                                 <div
                                     className={`message ${
-                                        message["username"] === existingUserName
+                                        message["username"] === participant
                                             ? "sent"
                                             : "received"
                                     }`}
@@ -300,22 +341,48 @@ function App() {
                     </div>
                 </div>
             ) : (
-                <div className="chat-input">
-                    <input
-                        type="text"
-                        placeholder="Enter your username"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                    />
+                <div className="chat-input chat-input-login">
+                    <p>Choose your role in this demo!</p>
                     <button
                         onClick={() => {
-                            const u = username.trim();
-                            localStorage.setItem("username", u);
-                            setExistingUsername(u);
+                            localStorage.setItem("participant", 0);
+                            setParticipant(0);
+                            if (tempChatId) {
+                                localStorage.setItem("chatId", tempChatId);
+                                setChatId(tempChatId);
+                                setTempChatId("");
+                            } else {
+                                createChat();
+                            }
                         }}
                     >
-                        Connect
+                        Connect as User (English speaker)
                     </button>
+                    <button
+                        onClick={() => {
+                            localStorage.setItem("participant", 1);
+                            setParticipant(1);
+                            if (tempChatId) {
+                                localStorage.setItem("chatId", tempChatId);
+                                setChatId(tempChatId);
+                                setTempChatId("");
+                            } else {
+                                createChat();
+                            }
+                        }}
+                    >
+                        Connect as Pro (Portuguese speaker)
+                    </button>
+                    <p>Or, join an existing chat:</p>
+                    <input
+                        type="text"
+                        name="chatId"
+                        placeholder="Chat ID like QTZLC_XXXXXXX"
+                        value={tempChatId ?? ""}
+                        onChange={(e) => {
+                            setTempChatId(e.target.value);
+                        }}
+                    />
                 </div>
             )}
         </div>
