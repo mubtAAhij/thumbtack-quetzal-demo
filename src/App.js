@@ -1,5 +1,7 @@
 import "./App.css";
 import { useEffect, useState, useRef, useCallback } from "react";
+import arthur from "./arthur.jpg";
+import billy from "./billy.jpg";
 
 function App() {
     const [tempChatId, setTempChatId] = useState("");
@@ -272,6 +274,21 @@ function App() {
                     {/* Chat Container */}
                     <div className="chat-container">
                         <div className="chat-messages">
+                            <div className="default-message-container">
+                                <div className="default-message">
+                                    <p>
+                                        <strong>New:</strong> Translate the
+                                        messages you receive into your language.
+                                    </p>
+                                    <button
+                                        onClick={() => {
+                                            setShowTranslatePopover(true);
+                                        }}
+                                    >
+                                        Try it now
+                                    </button>
+                                </div>
+                            </div>
                             {translatedMessages.map((message, index) => (
                                 <div
                                     className={`message ${
@@ -315,7 +332,7 @@ function App() {
             ) : (
                 <div className="chat-input chat-input-login">
                     <p>Choose your role in this demo!</p>
-                    <button
+                    {/* <button
                         onClick={() => {
                             localStorage.setItem("participant", 0);
                             setParticipant(0);
@@ -351,6 +368,64 @@ function App() {
                         name="chatId"
                         placeholder="Chat ID like QTZLC_XXXXXXX"
                         value={tempChatId ?? ""}
+                        onChange={(e) => {
+                            setTempChatId(e.target.value);
+                        }}
+                    /> */}
+                    <p>Join as User and chat with Arthur:</p>
+                    <div
+                        className="user-list-option"
+                        onClick={() => {
+                            localStorage.setItem("participant", 0);
+                            setParticipant(0);
+                            if (tempChatId) {
+                                localStorage.setItem("chatId", tempChatId);
+                                setChatId(tempChatId);
+                                setTempChatId("");
+                            } else {
+                                createChat();
+                            }
+                        }}
+                    >
+                        <img src={arthur} alt="user" className="profile-pic" />
+                        <div style={{ flexGrow: "1" }}>
+                            <p style={{ fontWeight: "bold" }}>Arthur Santos</p>
+                            <p style={{ fontSize: "14px" }}>Notary Public</p>
+                        </div>
+                        <p style={{ fontSize: "18px" }}>➜</p>
+                    </div>
+                    <p>Join as Pro and chat with Billy:</p>
+                    <div
+                        className="user-list-option"
+                        onClick={() => {
+                            localStorage.setItem("participant", 1);
+                            setParticipant(1);
+                            if (tempChatId) {
+                                localStorage.setItem("chatId", tempChatId);
+                                setChatId(tempChatId);
+                                setTempChatId("");
+                            } else {
+                                createChat();
+                            }
+                        }}
+                    >
+                        <img src={billy} alt="user" className="profile-pic" />
+                        <div style={{ flexGrow: "1" }}>
+                            <p style={{ fontWeight: "bold" }}>Billy Brandy</p>
+                            <p style={{ fontSize: "14px" }}>Customer #348934</p>
+                        </div>
+                        <p style={{ fontSize: "18px" }}>➜</p>
+                    </div>
+                    <p>
+                        Or, type an existing Chat ID and then click one of the
+                        options above to join
+                    </p>
+                    <input
+                        type="text"
+                        name="chatId"
+                        placeholder="Chat ID like QTZLC_XXXXXXX"
+                        value={tempChatId ?? ""}
+                        style={{ width: "75%" }}
                         onChange={(e) => {
                             setTempChatId(e.target.value);
                         }}
