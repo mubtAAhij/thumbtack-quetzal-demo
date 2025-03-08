@@ -56,34 +56,6 @@ function App() {
             );
     }, []);
 
-    const sendForTranslation = useCallback(
-        (message) => {
-            return fetch("https://api.getquetzal.com/api/chat/message", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "api-key": "QTZL_2V266U004U857OOISBY1M8",
-                },
-                body: JSON.stringify({
-                    content: message.text,
-                    participant: Number(message.username),
-                    timestamp: message.timestamp,
-                    chat_id: chatId,
-                }),
-            })
-                .then((res) => res.json())
-                .then((data) => {
-                    if (data && data.translated_content) {
-                        return data.translated_content;
-                    }
-                })
-                .catch((err) =>
-                    console.error("Error sending message to API:", err)
-                );
-        },
-        [chatId]
-    );
-
     useEffect(() => {
         socket.current = new WebSocket("ws://localhost:3005");
 
@@ -94,6 +66,8 @@ function App() {
         socket.current.onmessage = async (event) => {
             const msg = JSON.parse(event.data);
 
+            console.log('got the mensns', msg);
+
             const newMessage = JSON.parse(msg["utf8Data"]);
             if (newMessage.username === participant) {
                 setTranslatedMessages([
@@ -103,11 +77,11 @@ function App() {
             } else {
                 const utf8Data = JSON.parse(msg["utf8Data"]);
 
-                const translatedMessageContent = await sendForTranslation(
-                    newMessage
-                );
-
-                utf8Data.text = translatedMessageContent;
+                const translatedMessageContent = msg.translations;
+                
+                if (Object.keys(translatedMessageContent).includes(preferredLanguage)) {
+                    utf8Data.text = translatedMessageContent[preferredLanguage];
+                }
 
                 setTranslatedMessages([...translatedMessages, utf8Data]);
             }
@@ -116,7 +90,7 @@ function App() {
         return () => {
             socket.current.close();
         };
-    }, [participant, sendForTranslation, translatedMessages]);
+    }, [participant, preferredLanguage, translatedMessages]);
 
     const fetchMessages = useCallback(() => {
         fetch(`http://localhost:3005/messages?chatId=${chatId}`)
@@ -139,17 +113,10 @@ function App() {
                             Array.isArray(response.messages) &&
                             response.messages.length
                         ) {
-                            const translatedMap = new Map(
+                            const translationsMap = new Map(
                                 response.messages.map((msg) => [
                                     msg.content,
-                                    msg.translated_content || msg.content, // Fallback to original content
-                                ])
-                            );
-
-                            const translatedLocalesMap = new Map(
-                                response.messages.map((msg) => [
-                                    msg.content,
-                                    msg.translated_locale || "en-US", // Fallback to original content
+                                    msg.translations,
                                 ])
                             );
 
@@ -157,10 +124,10 @@ function App() {
                                 (message) => ({
                                     ...message, // Maintain the rest of the message object
                                     text:
-                                        translatedLocalesMap.get(
+                                        Object.keys(translationsMap.get(
                                             message.text
-                                        ) === preferredLanguage
-                                            ? translatedMap.get(message.text)
+                                        )).includes(preferredLanguage)
+                                            ? translationsMap.get(message.text)[preferredLanguage]
                                             : message.text, // Replace only content
                                 })
                             );

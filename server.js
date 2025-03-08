@@ -2,6 +2,7 @@ const WebSocket = require("websocket").server;
 const http = require("http");
 const cors = require("cors");
 const Sequelize = require("sequelize");
+const axios = require("axios");
 
 const sequelize = new Sequelize(process.env.DATABASE_URL);
 
@@ -49,7 +50,7 @@ function createServer() {
     webSocketServer.on("request", (req) => {
         const connection = req.accept(null, req.origin);
 
-        connection.on("message", (message) => {
+        connection.on("message", async (message) => {
             let msg = JSON.parse(message.utf8Data);
             Message.create({
                 username: msg.username,
@@ -57,7 +58,36 @@ function createServer() {
                 timestamp: msg.timestamp,
                 chatId: msg.chatId,
             });
-            webSocketServer.broadcast(JSON.stringify(message));
+
+            // Send the message to an external API
+            try {
+                const response = await axios.post(
+                    "https://api.getquetzal.com/api/chat/message",
+                    {
+                        content: msg.text,
+                        participant: Number(msg.username),
+                        timestamp: msg.timestamp,
+                        chat_id: msg.chatId,
+                    },
+                    {
+                        headers: {
+                            "Content-Type": "application/json",
+                            "api-key": "QTZL_2V266U004U857OOISBY1M8",
+                        },
+                    }
+                );
+
+                webSocketServer.broadcast(
+                    JSON.stringify({
+                        ...message,
+                        translations: response.data.translations,
+                    })
+                );
+            } catch (error) {
+                console.error("Error sending message to API:", error);
+
+                webSocketServer.broadcast(JSON.stringify(message));
+            }
         });
 
         connection.on("close", () => {
