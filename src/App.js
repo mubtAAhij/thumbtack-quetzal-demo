@@ -66,8 +66,6 @@ function App() {
         socket.current.onmessage = async (event) => {
             const msg = JSON.parse(event.data);
 
-            console.log('got the mensns', msg);
-
             const newMessage = JSON.parse(msg["utf8Data"]);
             if (newMessage.username === participant) {
                 setTranslatedMessages([
@@ -78,8 +76,12 @@ function App() {
                 const utf8Data = JSON.parse(msg["utf8Data"]);
 
                 const translatedMessageContent = msg.translations;
-                
-                if (Object.keys(translatedMessageContent).includes(preferredLanguage)) {
+
+                if (
+                    Object.keys(translatedMessageContent).includes(
+                        preferredLanguage
+                    )
+                ) {
                     utf8Data.text = translatedMessageContent[preferredLanguage];
                 }
 
@@ -124,10 +126,13 @@ function App() {
                                 (message) => ({
                                     ...message, // Maintain the rest of the message object
                                     text:
-                                        Object.keys(translationsMap.get(
-                                            message.text
-                                        )).includes(preferredLanguage)
-                                            ? translationsMap.get(message.text)[preferredLanguage]
+                                        Object.keys(
+                                            translationsMap.get(message.text)
+                                        ).includes(preferredLanguage) &&
+                                        Number(message.username) !== participant
+                                            ? translationsMap.get(message.text)[
+                                                  preferredLanguage
+                                              ]
                                             : message.text, // Replace only content
                                 })
                             );
@@ -146,7 +151,7 @@ function App() {
                     );
             })
             .catch((err) => console.error("Error fetching messages:", err));
-    }, [chatId, preferredLanguage]);
+    }, [chatId, participant, preferredLanguage]);
 
     useEffect(() => {
         if (chatId) {
