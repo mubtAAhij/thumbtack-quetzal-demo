@@ -1,0 +1,91 @@
+/* General Page Styles */
+.settings-page {
+    max-width: 600px;
+    margin: 50px auto;
+    padding: 20px;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+.settings-page h2 {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+/* Settings Card */
+.settings-card {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    width: auto;
+}
+
+.settings-card h3 {
+    margin-bottom: 10px;
+}
+
+.settings-card p {
+    font-size: 14px;
+    color: #555;
+}
+
+/* Toggle Switch */
+.settings-toggle {
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    margin: 10px 0;
+}
+
+.settings-toggle input {
+    margin-right: 10px;
+}
+
+/* Select Box */
+.settings-label {
+    font-size: 14px;
+    margin-top: 15px;
+    display: block;
+}
+
+.settings-select {
+    width: 100%;
+    padding: 8px;
+    margin-top: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+/* Buttons */
+.settings-buttons {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 15px;
+}
+
+.cancel-button {
+    background: none;
+    border: none;
+    padding: 8px 15px;
+    cursor: pointer;
+    color: #777;
+}
+
+.cancel-button:hover {
+    text-decoration: underline;
+}
+
+.save-button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.save-button:hover {
+    background-color: #0056b3;
+}

@@ -2,60 +2,51 @@ import "./App.css";
 import { useEffect, useState, useRef, useCallback } from "react";
 import arthur from "./arthur.jpg";
 import billy from "./billy.jpg";
+import UserSettingsPage from "./UserSettingsPage";
 
 function App() {
     const [tempChatId, setTempChatId] = useState("");
     const [chatId, setChatId] = useState(
         localStorage.getItem("chatId") || undefined
     );
+    const [quetzalChatId, setQuetzalChatId] = useState(
+        localStorage.getItem("quetzalChatId") || undefined
+    );
     const [messageInput, setMessageInput] = useState("");
     const socket = useRef(null);
-    const [participant, setParticipant] = useState(
-        localStorage.getItem("participant")
-            ? Number(localStorage.getItem("participant"))
+    const [selectedRole, setSelectedRole] = useState(
+        localStorage.getItem("selectedRole") || undefined
+    );
+    const [currentParticipant, setCurrentParticipant] = useState(
+        localStorage.getItem("currentParticipant")
+            ? JSON.parse(localStorage.getItem("currentParticipant"))
             : undefined
     );
 
     const [translatedMessages, setTranslatedMessages] = useState([]);
+    const [translationOn, setTranslationOn] = useState(false);
     const [preferredLanguage, setPreferredLanguage] = useState(
         localStorage.getItem("preferredLanguage") || "en-US"
     );
 
-    const [showTranslatePopover, setShowTranslatePopover] = useState(false);
-    const [tempLanguage, setTempLanguage] = useState(preferredLanguage);
-    const [saveChoice, setSaveChoice] = useState(false);
+    const [showUserSettingsPage, setShowUserSettingsPage] = useState(false);
 
-    const createChat = useCallback(() => {
-        return fetch("https://api.getquetzal.com/api/chat/new", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "api-key": "QTZL_2V266U004U857OOISBY1M8",
-            },
-            body: JSON.stringify({
-                participants: [
-                    { locale: "en-US", role: "User" },
-                    {
-                        locale: "pt-PT",
-                        role: "Pro",
-                    },
-                ],
-            }),
-        })
+    const [dropdownOpen, setDropdownOpen] = useState(false);
+
+    const createChat = useCallback((role) => {
+        fetch(`http://localhost:3005/newChat?preferredRole=${role}`)
             .then((res) => res.json())
             .then((data) => {
-                console.log("New chat created:", data);
-
-                if (data && data.chat_id) {
-                    setChatId(data.chat_id);
-                    localStorage.setItem("chatId", data.chat_id);
-                } else {
-                    console.error("API error for creating new chat");
-                }
-            })
-            .catch((err) =>
-                console.error("Error sending message to API:", err)
-            );
+                setCurrentParticipant(data.currentParticipant);
+                setChatId(data.chatId);
+                setQuetzalChatId(data.quetzalChatId);
+                localStorage.setItem(
+                    "currentParticipant",
+                    JSON.stringify(data.currentParticipant)
+                );
+                localStorage.setItem("chatId", data.chatId);
+                localStorage.setItem("quetzalChatId", data.quetzalChatId);
+            });
     }, []);
 
     useEffect(() => {
@@ -68,98 +59,130 @@ function App() {
         socket.current.onmessage = async (event) => {
             const msg = JSON.parse(event.data);
 
-            const newMessage = JSON.parse(msg["utf8Data"]);
-            if (newMessage.username === participant) {
+            if (msg.type === "messageCreated") {
+                const newMessage = JSON.parse(msg["utf8Data"]);
+
                 setTranslatedMessages([
                     ...translatedMessages,
-                    JSON.parse(msg["utf8Data"]),
+                    {
+                        ...newMessage,
+                        messageId: msg.messageId,
+                    },
                 ]);
-            } else {
-                const utf8Data = JSON.parse(msg["utf8Data"]);
-
-                const translatedMessageContent = msg.translations;
-
-                if (
-                    Object.keys(translatedMessageContent).includes(
-                        preferredLanguage
-                    )
-                ) {
-                    utf8Data.text = translatedMessageContent[preferredLanguage];
-                }
-
-                setTranslatedMessages([...translatedMessages, utf8Data]);
+            } else if (msg.type === "translationFinished") {
+                if (!translationOn) return;
+                if (msg.result !== "ok") return;
+                setTranslatedMessages((prevMessages) =>
+                    prevMessages.map((message) => {
+                        if (msg.message_ids.includes(message.messageId)) {
+                            return {
+                                ...message,
+                                text:
+                                    msg.translations[preferredLanguage] ||
+                                    message.text,
+                            };
+                        }
+                        return message;
+                    })
+                );
             }
         };
 
         return () => {
             socket.current.close();
         };
-    }, [participant, preferredLanguage, translatedMessages]);
+    }, [preferredLanguage, translatedMessages, translationOn]);
 
-    const fetchMessages = useCallback(() => {
-        fetch(`http://localhost:3005/messages?chatId=${chatId}`)
-            .then((res) => res.json())
-            .then((data) => {
-                fetch(
-                    `https://api.getquetzal.com/api/chat/log?chat_id=${chatId}`,
-                    {
-                        method: "GET",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "api-key": "QTZL_2V266U004U857OOISBY1M8",
-                        },
-                    }
-                )
-                    .then((res) => res.json())
-                    .then((response) => {
-                        if (
-                            response.messages &&
-                            Array.isArray(response.messages) &&
-                            response.messages.length
-                        ) {
-                            const translationsMap = new Map(
-                                response.messages.map((msg) => [
-                                    msg.content,
-                                    msg.translations,
-                                ])
-                            );
-
-                            const updatedTranslatedMessages = data.map(
-                                (message) => ({
-                                    ...message, // Maintain the rest of the message object
-                                    text:
-                                        Object.keys(
-                                            translationsMap.get(message.text)
-                                        ).includes(preferredLanguage) &&
-                                        Number(message.username) !== participant
-                                            ? translationsMap.get(message.text)[
-                                                  preferredLanguage
-                                              ]
-                                            : message.text, // Replace only content
-                                })
-                            );
-
-                            setTranslatedMessages(updatedTranslatedMessages);
-                        } else {
-                            // If no response messages, default to original messages while maintaining object structure
-                            setTranslatedMessages([]);
-                        }
-                    })
-                    .catch((err) =>
-                        console.error(
-                            "Error fetching translated messages:",
-                            err
-                        )
+    const fetchMessages = useCallback(
+        (newChatId, selectedRole) => {
+            if (!newChatId || !selectedRole) return;
+            fetch(
+                `http://localhost:3005/messages?chatId=${newChatId}&selectedRole=${selectedRole}`
+            )
+                .then((res) => res.json())
+                .then((data) => {
+                    if (
+                        !data.quetzalChatId ||
+                        !data.participant ||
+                        !data.messages
+                    )
+                        return;
+                    setQuetzalChatId(data.quetzalChatId);
+                    setCurrentParticipant(data.participant);
+                    localStorage.setItem("quetzalChatId", data.quetzalChatId);
+                    localStorage.setItem(
+                        "currentParticipant",
+                        JSON.stringify(data.participant)
                     );
-            })
-            .catch((err) => console.error("Error fetching messages:", err));
-    }, [chatId, participant, preferredLanguage]);
+                    fetch(
+                        `https://api.getquetzal.com/api/chat/log?chat_id=${quetzalChatId}&limit=10&wait=true`,
+                        {
+                            method: "GET",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "api-key": "QTZL_2V266U004U857OOISBY1M8",
+                            },
+                        }
+                    )
+                        .then((res) => res.json())
+                        .then((response) => {
+                            if (
+                                response.messages &&
+                                Array.isArray(response.messages) &&
+                                response.messages.length
+                            ) {
+                                const translationsMap = new Map(
+                                    response.messages.map((msg) => [
+                                        Number(msg.hash),
+                                        msg.translations,
+                                    ])
+                                );
+
+                                const updatedTranslatedMessages =
+                                    data.messages.map((message) => ({
+                                        ...message, // Maintain the rest of the message object
+                                        text:
+                                            translationsMap.get(
+                                                Number(message.id)
+                                            ) &&
+                                            Object.keys(
+                                                translationsMap.get(
+                                                    Number(message.id)
+                                                )
+                                            ).includes(preferredLanguage) &&
+                                            Number(message.participantId) !==
+                                                currentParticipant.id
+                                                ? translationsMap.get(
+                                                      Number(message.id)
+                                                  )[preferredLanguage]
+                                                : message.text, // Replace only content
+                                    }));
+
+                                setTranslatedMessages(
+                                    updatedTranslatedMessages
+                                );
+                            } else {
+                                // If no response messages, default to original messages while maintaining object structure
+                                setTranslatedMessages([]);
+                            }
+                        })
+                        .catch((err) =>
+                            console.error(
+                                "Error fetching translated messages:",
+                                err
+                            )
+                        );
+                })
+                .catch((err) => console.error("Error fetching messages:", err));
+        },
+        [currentParticipant?.id, preferredLanguage, quetzalChatId]
+    );
 
     useEffect(() => {
-        if (chatId) {
-            fetchMessages();
+        if (chatId && !translatedMessages.length && currentParticipant) {
+            fetchMessages(chatId, currentParticipant.role);
         }
-    }, [chatId, fetchMessages]);
+    }, []);
 
     const sendMessage = useCallback(() => {
         if (messageInput.trim() === "") {
@@ -167,17 +190,17 @@ function App() {
         }
 
         const message = {
+            type: "newMessage",
             text: messageInput,
-            username: participant,
+            participantId: currentParticipant.id,
             timestamp: new Date().toISOString(),
             chatId,
         };
 
-        // Send message via WebSocket
         socket.current.send(JSON.stringify(message));
 
         setMessageInput("");
-    }, [chatId, messageInput, participant]);
+    }, [chatId, currentParticipant?.id, messageInput]);
 
     const formatTime = (timestamp) => {
         if (!timestamp) return "";
@@ -190,143 +213,204 @@ function App() {
         }).format(date);
     };
 
+    const handleSettingsUpdated = useCallback(
+        (newSettings) => {
+            setTranslationOn(newSettings.translationOn);
+            localStorage.setItem("translationOn", newSettings.translationOn);
+            if (newSettings.preferredLanguage) {
+                setPreferredLanguage(newSettings.preferredLanguage);
+                localStorage.setItem(
+                    "preferredLanguage",
+                    newSettings.preferredLanguage
+                );
+            }
+            return fetch("https://api.getquetzal.com/api/chat/update", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "api-key": "QTZL_2V266U004U857OOISBY1M8",
+                },
+                body: JSON.stringify({
+                    chat_id: quetzalChatId,
+                    participants: [
+                        {
+                            id: currentParticipant.id.toString(),
+                            locale: newSettings.preferredLanguage,
+                        },
+                    ],
+                }),
+            })
+                .then((res) => res.json())
+                .then((data) => {
+                    console.log("Chat updated:", data);
+
+                    fetchMessages(chatId, selectedRole);
+                })
+                .catch((err) =>
+                    console.error("Error updating chat to API:", err)
+                );
+        },
+        [chatId, currentParticipant?.id, fetchMessages, quetzalChatId, selectedRole]
+    );
+
+    if (showUserSettingsPage)
+        return (
+            <UserSettingsPage
+                preferredLanguage={preferredLanguage}
+                setShowUserSettingsPage={setShowUserSettingsPage}
+                handleSaveSettings={handleSettingsUpdated}
+            />
+        );
+
     return (
         <div className="App">
-            {/* Navbar */}
-            <div className="navbar">
-                <div className="navbar-left">Notarization</div>
-                <div className="navbar-right">
-                    <button
-                        className="navbar-button"
-                        onClick={() =>
-                            setShowTranslatePopover(!showTranslatePopover)
-                        }
-                    >
-                        🌍 Translate
-                    </button>
-                    <button className="navbar-button">📞 Call pro</button>
-                    <button className="navbar-button">⭐ Review pro</button>
-                    <button className="navbar-button">☰ Project details</button>
+            {/* Top Navbar */}
+            <div className="top-navbar">
+                <div className="logo">T</div>
+                <div className="search-bar">
+                    <input
+                        type="text"
+                        placeholder="Describe your project or problem"
+                    />
+                    <input
+                        type="text"
+                        className="zipcode-input"
+                        placeholder="Zip Code"
+                    />
+                    <button className="search-button">🔍</button>
+                </div>
+                <div className="top-nav-buttons">
+                    <button>Sign up as a pro</button>
+                    <button>Plan</button>
+                    <button>Team</button>
+                    <button>Inbox</button>
+                    {/* Profile Dropdown Button */}
+                    <div className="profile-menu">
+                        <button
+                            className="profile-button"
+                            onClick={() => setDropdownOpen(!dropdownOpen)}
+                        >
+                            <span className="profile-initials">JT</span> John ▼
+                        </button>
+
+                        {/* Dropdown Menu */}
+                        {dropdownOpen && (
+                            <div className="dropdown-menu">
+                                <button
+                                    onClick={() => {
+                                        setShowUserSettingsPage(true);
+                                        setDropdownOpen(false);
+                                    }}
+                                >
+                                    Profile
+                                </button>
+                                <button>Payment methods</button>
+                                <button>Log out</button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 
-            {/* Translate Popover */}
-            {showTranslatePopover && (
-                <div className="popover">
-                    <h3>Translate</h3>
-                    <p>
-                        Automatically translate messages written by Pros to your
-                        native language.
-                    </p>
-                    <select
-                        value={tempLanguage}
-                        onChange={(e) => setTempLanguage(e.target.value)}
-                    >
-                        <option value="en-US">English</option>
-                        <option value="es-ES">Spanish</option>
-                        <option value="pt-PT">Portuguese</option>
-                        <option value="zh-CN">Chinese (Simplified)</option>
-                    </select>
-                    <label>
-                        <input
-                            type="checkbox"
-                            checked={saveChoice}
-                            onChange={() => setSaveChoice(!saveChoice)}
-                        />
-                        Save my choice for all chats
-                    </label>
-                    <div className="popover-buttons">
-                        <button onClick={() => setShowTranslatePopover(false)}>
-                            Cancel
-                        </button>
-                        <button
-                            onClick={() => {
-                                setPreferredLanguage(tempLanguage);
-                                if (saveChoice) {
-                                    localStorage.setItem(
-                                        "preferredLanguage",
-                                        tempLanguage
-                                    );
-                                }
-                                setShowTranslatePopover(false);
-                            }}
-                        >
-                            Save
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {!!chatId ? (
-                <div>
-                    <button
-                        onClick={() => {
-                            setChatId(undefined);
-                        }}
-                    >
-                        Back
-                    </button>
-                    <p>
-                        You are logged in as:{" "}
-                        {participant === 0 ? "User" : "Pro"}
-                    </p>
-                    <p>Your chat ID is: {chatId}</p>
-                    {/* Chat Container */}
-                    <div className="chat-container">
-                        <div className="chat-messages">
-                            <div className="default-message-container">
-                                <div className="default-message">
-                                    <p>
-                                        <strong>New:</strong> Translate the
-                                        messages you receive into your language.
-                                    </p>
-                                    <button
-                                        onClick={() => {
-                                            setShowTranslatePopover(true);
-                                        }}
-                                    >
-                                        Try it now
+            {chatId && quetzalChatId ? (
+                <div className="main-window">
+                    <div className="left-panel">
+                        <div>
+                            {/* Navbar */}
+                            <div className="navbar">
+                                <div className="navbar-left">Notarization</div>
+                                <div className="navbar-right">
+                                    <button className="navbar-button">
+                                        📞 Call pro
+                                    </button>
+                                    <button className="navbar-button">
+                                        ⭐ Review pro
+                                    </button>
+                                    <button className="navbar-button">
+                                        ☰ Project details
                                     </button>
                                 </div>
                             </div>
-                            {translatedMessages.map((message, index) => (
-                                <div
-                                    className={`message ${
-                                        Number(message["username"]) ===
-                                        participant
-                                            ? "sent"
-                                            : "received"
-                                    }`}
-                                    key={index}
-                                >
-                                    <span className="message-content">
-                                        {message["text"]}
-                                    </span>
-                                    <span className="message-timestamp">
-                                        {formatTime(message["timestamp"])}
-                                    </span>
-                                </div>
-                            ))}
                         </div>
-                        <div className="chat-input">
-                            <input
-                                type="text"
-                                placeholder="Type your message"
-                                value={messageInput}
-                                onChange={(e) =>
-                                    setMessageInput(e.target.value)
-                                }
-                                onKeyDown={(e) => {
-                                    if (
-                                        e.key === "Enter" &&
-                                        messageInput.trim() !== ""
-                                    ) {
-                                        sendMessage();
-                                    }
+                        <div>
+                            <button
+                                onClick={() => {
+                                    setChatId(undefined);
                                 }}
-                            />
-                            <button onClick={sendMessage}>Send</button>
+                            >
+                                Back
+                            </button>
+                            <p>You are logged in as: {selectedRole}</p>
+                            <p>Your chat ID is: {chatId}</p>
+                            {/* Chat Container */}
+                            <div className="chat-container">
+                                <div className="chat-messages">
+                                    <div className="default-message-container">
+                                        <div className="default-message">
+                                            <p>
+                                                <strong>New:</strong> Send and
+                                                receive messages in your native
+                                                language.
+                                            </p>
+                                            <button
+                                                onClick={() => {
+                                                    setShowUserSettingsPage(
+                                                        true
+                                                    );
+                                                }}
+                                            >
+                                                Try it now
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {translatedMessages.map(
+                                        (message, index) => (
+                                            <div
+                                                className={`message ${
+                                                    Number(
+                                                        message["participantId"]
+                                                    ) === currentParticipant.id
+                                                        ? "sent"
+                                                        : "received"
+                                                }`}
+                                                key={index}
+                                            >
+                                                <span className="message-content">
+                                                    {message["text"]}
+                                                </span>
+                                                <span className="message-timestamp">
+                                                    {formatTime(
+                                                        message["timestamp"]
+                                                    )}
+                                                </span>
+                                            </div>
+                                        )
+                                    )}
+                                </div>
+                                <div className="chat-input">
+                                    <input
+                                        type="text"
+                                        placeholder="Type your message"
+                                        value={messageInput}
+                                        onChange={(e) =>
+                                            setMessageInput(e.target.value)
+                                        }
+                                        onKeyDown={(e) => {
+                                            if (
+                                                e.key === "Enter" &&
+                                                messageInput.trim() !== ""
+                                            ) {
+                                                sendMessage();
+                                            }
+                                        }}
+                                    />
+                                    <button onClick={sendMessage}>Send</button>
+                                </div>
+                            </div>
                         </div>
+                    </div>
+                    <div className="right-panel">
+                        <p>Side panel</p>
                     </div>
                 </div>
             ) : (
@@ -376,14 +460,15 @@ function App() {
                     <div
                         className="user-list-option"
                         onClick={() => {
-                            localStorage.setItem("participant", 0);
-                            setParticipant(0);
+                            localStorage.setItem("selectedRole", "User");
+                            setSelectedRole("User");
                             if (tempChatId) {
                                 localStorage.setItem("chatId", tempChatId);
                                 setChatId(tempChatId);
+                                fetchMessages(tempChatId, "Pro");
                                 setTempChatId("");
                             } else {
-                                createChat();
+                                createChat("User");
                             }
                         }}
                     >
@@ -398,14 +483,15 @@ function App() {
                     <div
                         className="user-list-option"
                         onClick={() => {
-                            localStorage.setItem("participant", 1);
-                            setParticipant(1);
+                            localStorage.setItem("selectedRole", "Pro");
+                            setSelectedRole("Pro");
                             if (tempChatId) {
                                 localStorage.setItem("chatId", tempChatId);
                                 setChatId(tempChatId);
+                                fetchMessages(tempChatId, "Pro");
                                 setTempChatId("");
                             } else {
-                                createChat();
+                                createChat("Pro");
                             }
                         }}
                     >
@@ -423,7 +509,7 @@ function App() {
                     <input
                         type="text"
                         name="chatId"
-                        placeholder="Chat ID like QTZLC_XXXXXXX"
+                        placeholder="Chat ID"
                         value={tempChatId ?? ""}
                         style={{ width: "75%" }}
                         onChange={(e) => {
