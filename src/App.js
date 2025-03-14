@@ -115,7 +115,7 @@ function App() {
                         JSON.stringify(data.participant)
                     );
                     fetch(
-                        `https://api.getquetzal.com/api/chat/log?chat_id=${quetzalChatId}&limit=10&wait=true`,
+                        `https://api.getquetzal.com/api/chat/log?chat_id=${data.quetzalChatId}&limit=10&wait=true`,
                         {
                             method: "GET",
                             headers: {
@@ -142,6 +142,7 @@ function App() {
                                     data.messages.map((message) => ({
                                         ...message, // Maintain the rest of the message object
                                         text:
+                                            currentParticipant &&
                                             translationsMap.get(
                                                 Number(message.id)
                                             ) &&
@@ -175,7 +176,7 @@ function App() {
                 })
                 .catch((err) => console.error("Error fetching messages:", err));
         },
-        [currentParticipant?.id, preferredLanguage, quetzalChatId]
+        [currentParticipant, preferredLanguage]
     );
 
     useEffect(() => {
@@ -250,7 +251,13 @@ function App() {
                     console.error("Error updating chat to API:", err)
                 );
         },
-        [chatId, currentParticipant?.id, fetchMessages, quetzalChatId, selectedRole]
+        [
+            chatId,
+            currentParticipant?.id,
+            fetchMessages,
+            quetzalChatId,
+            selectedRole,
+        ]
     );
 
     if (showUserSettingsPage)
