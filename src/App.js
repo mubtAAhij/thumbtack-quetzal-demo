@@ -423,46 +423,6 @@ function App() {
             ) : (
                 <div className="chat-input chat-input-login">
                     <p>Choose your role in this demo!</p>
-                    {/* <button
-                        onClick={() => {
-                            localStorage.setItem("participant", 0);
-                            setParticipant(0);
-                            if (tempChatId) {
-                                localStorage.setItem("chatId", tempChatId);
-                                setChatId(tempChatId);
-                                setTempChatId("");
-                            } else {
-                                createChat();
-                            }
-                        }}
-                    >
-                        Connect as User (English speaker)
-                    </button>
-                    <button
-                        onClick={() => {
-                            localStorage.setItem("participant", 1);
-                            setParticipant(1);
-                            if (tempChatId) {
-                                localStorage.setItem("chatId", tempChatId);
-                                setChatId(tempChatId);
-                                setTempChatId("");
-                            } else {
-                                createChat();
-                            }
-                        }}
-                    >
-                        Connect as Pro (Portuguese speaker)
-                    </button>
-                    <p>Or, join an existing chat:</p>
-                    <input
-                        type="text"
-                        name="chatId"
-                        placeholder="Chat ID like QTZLC_XXXXXXX"
-                        value={tempChatId ?? ""}
-                        onChange={(e) => {
-                            setTempChatId(e.target.value);
-                        }}
-                    /> */}
                     <p>Join as User and chat with Arthur:</p>
                     <div
                         className="user-list-option"
