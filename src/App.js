@@ -24,14 +24,20 @@ function App() {
     );
 
     const [translatedMessages, setTranslatedMessages] = useState([]);
-    const [translationOn, setTranslationOn] = useState(false);
+    const [translationOn, setTranslationOn] = useState(
+        localStorage.getItem("translationOn") || false
+    );
     const [preferredLanguage, setPreferredLanguage] = useState(
         localStorage.getItem("preferredLanguage") || "en-US"
     );
 
     const [showUserSettingsPage, setShowUserSettingsPage] = useState(false);
-
     const [dropdownOpen, setDropdownOpen] = useState(false);
+
+    const [hasMoreMessages, setHasMoreMessages] = useState(true);
+    const [earliestMessageTime, setEarliestMessageTime] = useState(null);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const messagesContainerRef = useRef(null);
 
     const createChat = useCallback((role) => {
         fetch(`http://localhost:3005/newChat?preferredRole=${role}`)
@@ -66,7 +72,7 @@ function App() {
                     ...translatedMessages,
                     {
                         ...newMessage,
-                        messageId: msg.messageId,
+                        id: msg.messageId,
                     },
                 ]);
             } else if (msg.type === "translationFinished") {
@@ -74,7 +80,7 @@ function App() {
                 if (msg.result !== "ok") return;
                 setTranslatedMessages((prevMessages) =>
                     prevMessages.map((message) => {
-                        if (msg.message_ids.includes(message.messageId)) {
+                        if (msg.message_ids.includes(message.id)) {
                             return {
                                 ...message,
                                 text:
@@ -94,94 +100,227 @@ function App() {
     }, [preferredLanguage, translatedMessages, translationOn]);
 
     const fetchMessages = useCallback(
-        (newChatId, selectedRole) => {
-            if (!newChatId || !selectedRole) return;
-            fetch(
-                `http://localhost:3005/messages?chatId=${newChatId}&selectedRole=${selectedRole}`
+        async (
+            newChatId,
+            selectedRole,
+            newPreferredLanguage,
+            before = null
+        ) => {
+            if (
+                !newChatId ||
+                !selectedRole ||
+                isLoadingMore ||
+                !hasMoreMessages
             )
-                .then((res) => res.json())
-                .then((data) => {
-                    if (
-                        !data.quetzalChatId ||
-                        !data.participant ||
-                        !data.messages
-                    )
-                        return;
-                    setQuetzalChatId(data.quetzalChatId);
-                    setCurrentParticipant(data.participant);
-                    localStorage.setItem("quetzalChatId", data.quetzalChatId);
-                    localStorage.setItem(
-                        "currentParticipant",
-                        JSON.stringify(data.participant)
+                return;
+
+            setIsLoadingMore(true);
+            const container = messagesContainerRef.current;
+            const previousHeight = container ? container.scrollHeight : 0; // Save current height
+
+            try {
+                // Step 1: Fetch messages from our backend
+                const url = new URL("http://localhost:3005/messages");
+                url.searchParams.append("chatId", newChatId);
+                url.searchParams.append("selectedRole", selectedRole);
+                url.searchParams.append("limit", "10");
+                if (before) {
+                    url.searchParams.append("before", before);
+                }
+
+                const res = await fetch(url);
+                const data = await res.json();
+
+                if (!data.quetzalChatId || !data.participant || !data.messages)
+                    return;
+
+                setQuetzalChatId(data.quetzalChatId);
+                setCurrentParticipant(data.participant);
+                localStorage.setItem("quetzalChatId", data.quetzalChatId);
+                localStorage.setItem(
+                    "currentParticipant",
+                    JSON.stringify(data.participant)
+                );
+
+                if (data.messages.length === 0) {
+                    setHasMoreMessages(false);
+                    return;
+                }
+
+                // Extract message IDs for Quetzal API
+                const messageIds = data.messages.map((msg) => msg.id);
+
+                // Step 2: Fetch translations from Quetzal API
+                const translationUrl = new URL(
+                    `https://api.getquetzal.com/api/chat/messages/get`
+                );
+                translationUrl.searchParams.append(
+                    "chat_id",
+                    data.quetzalChatId
+                );
+                translationUrl.searchParams.append("wait", "true");
+
+                // Instead of pagination, send specific message IDs
+                messageIds.forEach((id) =>
+                    translationUrl.searchParams.append("message_id", id)
+                );
+
+                const translationRes = await fetch(translationUrl, {
+                    method: "GET",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "api-key": "QTZL_2V266U004U857OOISBY1M8",
+                    },
+                });
+
+                const response = await translationRes.json();
+                const translationsMap = new Map(
+                    (response.messages || []).map((msg) => [
+                        Number(msg.external_id),
+                        msg.translations,
+                    ])
+                );
+
+                // Step 3: Identify missing translations
+                const missingMessages = data.messages.filter(
+                    (msg) =>
+                        Number(msg.participantId) !== currentParticipant.id &&
+                        (!translationsMap.has(Number(msg.id)) ||
+                            !translationsMap.get(Number(msg.id))[
+                                newPreferredLanguage
+                            ])
+                );
+
+                // If there are missing translations, request them via /messages/new
+                if (missingMessages.length > 0) {
+                    console.log(
+                        "Requesting new translations for:",
+                        missingMessages
                     );
-                    fetch(
-                        `https://api.getquetzal.com/api/chat/log?chat_id=${data.quetzalChatId}&limit=10&wait=true`,
+
+                    const newTranslationsRes = await fetch(
+                        "https://api.getquetzal.com/api/chat/messages/new",
                         {
-                            method: "GET",
+                            method: "POST",
                             headers: {
                                 "Content-Type": "application/json",
                                 "api-key": "QTZL_2V266U004U857OOISBY1M8",
                             },
+                            body: JSON.stringify({
+                                chat_id: data.quetzalChatId,
+                                messages: missingMessages.map((msg) => ({
+                                    hash: msg.id,
+                                    content: msg.text,
+                                    participant: msg.participantId,
+                                })),
+                            }),
                         }
-                    )
-                        .then((res) => res.json())
-                        .then((response) => {
-                            if (
-                                response.messages &&
-                                Array.isArray(response.messages) &&
-                                response.messages.length
-                            ) {
-                                const translationsMap = new Map(
-                                    response.messages.map((msg) => [
-                                        Number(msg.hash),
-                                        msg.translations,
-                                    ])
-                                );
+                    );
 
-                                const updatedTranslatedMessages =
-                                    data.messages.map((message) => ({
-                                        ...message, // Maintain the rest of the message object
-                                        text:
-                                            currentParticipant &&
-                                            translationsMap.get(
-                                                Number(message.id)
-                                            ) &&
-                                            Object.keys(
-                                                translationsMap.get(
-                                                    Number(message.id)
-                                                )
-                                            ).includes(preferredLanguage) &&
-                                            Number(message.participantId) !==
-                                                currentParticipant.id
-                                                ? translationsMap.get(
-                                                      Number(message.id)
-                                                  )[preferredLanguage]
-                                                : message.text, // Replace only content
-                                    }));
+                    const newTranslationsData = await newTranslationsRes.json();
+                    if (newTranslationsData.result === "ok") {
+                        newTranslationsData.messages.forEach((msg) => {
+                            translationsMap.set(
+                                Number(msg.hash),
+                                msg.translations
+                            );
+                        });
+                    }
+                }
 
-                                setTranslatedMessages(
-                                    updatedTranslatedMessages
-                                );
-                            } else {
-                                // If no response messages, default to original messages while maintaining object structure
-                                setTranslatedMessages([]);
-                            }
-                        })
-                        .catch((err) =>
-                            console.error(
-                                "Error fetching translated messages:",
-                                err
-                            )
-                        );
-                })
-                .catch((err) => console.error("Error fetching messages:", err));
+                // Step 4: Process messages with translations
+                const updatedMessages = data.messages.map((message) => {
+                    return {
+                        ...message,
+                        text:
+                            currentParticipant &&
+                            translationsMap.has(Number(message.id)) &&
+                            translationsMap.get(Number(message.id))[
+                                newPreferredLanguage
+                            ] &&
+                            Number(message.participantId) !==
+                                currentParticipant.id
+                                ? translationsMap.get(Number(message.id))[
+                                      newPreferredLanguage
+                                  ]
+                                : message.text,
+                    };
+                });
+
+                setTranslatedMessages((prevMessages) => {
+                    const oldMessages = prevMessages.filter(
+                        (msg) => !updatedMessages.some((m) => m.id === msg.id)
+                    );
+                    return [...updatedMessages, ...oldMessages];
+                });
+
+                if (updatedMessages.length > 0) {
+                    setEarliestMessageTime(updatedMessages[0].timestamp);
+                }
+
+                // Stop loading more if fewer than limit
+                if (updatedMessages.length < 10) {
+                    setHasMoreMessages(false);
+                }
+
+                setTimeout(() => {
+                    if (container) {
+                        container.scrollTop =
+                            container.scrollHeight - previousHeight;
+                    }
+                }, 0);
+            } catch (error) {
+                console.error("Error fetching messages:", error);
+            } finally {
+                setIsLoadingMore(false);
+            }
         },
-        [currentParticipant, preferredLanguage]
+        [isLoadingMore, hasMoreMessages, currentParticipant]
     );
+
+    const handleScroll = useCallback(() => {
+        if (!messagesContainerRef.current || isLoadingMore || !hasMoreMessages)
+            return;
+
+        if (messagesContainerRef.current.scrollTop === 0) {
+            fetchMessages(
+                chatId,
+                selectedRole,
+                preferredLanguage,
+                earliestMessageTime
+            );
+        }
+    }, [
+        chatId,
+        earliestMessageTime,
+        fetchMessages,
+        hasMoreMessages,
+        isLoadingMore,
+        preferredLanguage,
+        selectedRole,
+    ]);
+
+    useEffect(() => {
+        const container = messagesContainerRef.current;
+        if (!container) return;
+
+        let firstScroll = true; // Flag to prevent immediate fetch
+
+        const handleScrollEvent = () => {
+            if (firstScroll) {
+                firstScroll = false;
+                return;
+            }
+            handleScroll();
+        };
+
+        container.addEventListener("scroll", handleScrollEvent);
+        return () => container.removeEventListener("scroll", handleScrollEvent);
+    }, [handleScroll]);
 
     useEffect(() => {
         if (chatId && !translatedMessages.length && currentParticipant) {
-            fetchMessages(chatId, currentParticipant.role);
+            fetchMessages(chatId, currentParticipant.role, preferredLanguage);
         }
     }, []);
 
@@ -245,7 +384,11 @@ function App() {
                 .then((data) => {
                     console.log("Chat updated:", data);
 
-                    fetchMessages(chatId, selectedRole);
+                    fetchMessages(
+                        chatId,
+                        selectedRole,
+                        newSettings.preferredLanguage
+                    );
                 })
                 .catch((err) =>
                     console.error("Error updating chat to API:", err)
@@ -351,7 +494,11 @@ function App() {
                             <p>Your chat ID is: {chatId}</p>
                             {/* Chat Container */}
                             <div className="chat-container">
-                                <div className="chat-messages">
+                                <div
+                                    className="chat-messages"
+                                    ref={messagesContainerRef}
+                                    onScroll={handleScroll}
+                                >
                                     <div className="default-message-container">
                                         <div className="default-message">
                                             <p>
@@ -370,6 +517,11 @@ function App() {
                                             </button>
                                         </div>
                                     </div>
+                                    {isLoadingMore && (
+                                        <p className="loading-spinner">
+                                            Loading more messages...
+                                        </p>
+                                    )}
                                     {translatedMessages.map(
                                         (message, index) => (
                                             <div
@@ -432,7 +584,7 @@ function App() {
                             if (tempChatId) {
                                 localStorage.setItem("chatId", tempChatId);
                                 setChatId(tempChatId);
-                                fetchMessages(tempChatId, "Pro");
+                                fetchMessages(tempChatId, "User", "en-US");
                                 setTempChatId("");
                             } else {
                                 createChat("User");
@@ -455,7 +607,7 @@ function App() {
                             if (tempChatId) {
                                 localStorage.setItem("chatId", tempChatId);
                                 setChatId(tempChatId);
-                                fetchMessages(tempChatId, "Pro");
+                                fetchMessages(tempChatId, "Pro", "en-US");
                                 setTempChatId("");
                             } else {
                                 createChat("Pro");

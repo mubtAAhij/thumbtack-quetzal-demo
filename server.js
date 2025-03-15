@@ -45,25 +45,73 @@ function createServer() {
             if (url.pathname === "/messages") {
                 const chatId = url.searchParams.get("chatId");
                 const selectedRole = url.searchParams.get("selectedRole");
+                const before = url.searchParams.get("before"); // ISO timestamp for messages before this time
+                const after = url.searchParams.get("after"); // ISO timestamp for messages after this time
+                const limit = parseInt(url.searchParams.get("limit")) || 10; // Default limit to 10 if not provided
+
                 if (!chatId || !selectedRole) {
                     res.writeHead(400, { "Content-Type": "application/json" });
-                    res.end(JSON.stringify({ error: "chatId and selectedRole are required" }));
+                    res.end(
+                        JSON.stringify({
+                            error: "chatId and selectedRole are required",
+                        })
+                    );
                     return;
                 }
+
                 Chat.findByPk(chatId).then((chat) => {
                     if (!chat) {
-                        res.status(500).send("Incorrect chatId provided");
+                        res.writeHead(500, { "Content-Type": "text/plain" });
+                        res.end("Incorrect chatId provided");
+                        return;
                     }
+
                     Participant.findAll({
                         where: {
                             role: selectedRole,
                             chatIds: { [Sequelize.Op.contains]: [chatId] },
                         },
                     }).then((participants) => {
-                        if (!participants && !participants.length) {
-                            res.status(500).send("Participant not found");
+                        if (!participants || !participants.length) {
+                            res.writeHead(500, {
+                                "Content-Type": "text/plain",
+                            });
+                            res.end("Participant not found");
+                            return;
                         }
-                        fetchMessages(chatId).then((messages) => {
+
+                        // Construct dynamic query condition
+                        let whereCondition = { chatId };
+                        if (before && after) {
+                            whereCondition.timestamp = {
+                                [Sequelize.Op.lt]: new Date(before),
+                                [Sequelize.Op.gt]: new Date(after),
+                            };
+                        } else if (before) {
+                            whereCondition.timestamp = {
+                                [Sequelize.Op.lt]: new Date(before),
+                            };
+                        } else if (after) {
+                            whereCondition.timestamp = {
+                                [Sequelize.Op.gt]: new Date(after),
+                            };
+                        }
+
+                        // Determine sort order
+                        const order =
+                            before || (!before && !after)
+                                ? [["timestamp", "DESC"]]
+                                : [["timestamp", "ASC"]];
+
+                        Message.findAll({
+                            where: whereCondition,
+                            order: order,
+                            limit: limit,
+                        }).then((messages) => {
+                            // If fetching `before`, reverse messages to return in chronological order
+                            if (before || (!before && !after))
+                                messages.reverse();
+
                             res.writeHead(200, {
                                 "Content-Type": "application/json",
                             });
@@ -121,7 +169,7 @@ function createServer() {
                     .then(async (response) => {
                         const chat = await Chat.create({
                             participantIds: [participant1.id, participant2.id],
-                            quetzalChatId: response.data.chat_id,
+                            quetzalChatId: response.data.quetzal_chat_id,
                         });
 
                         participant1.chatIds = [chat.id];
@@ -136,7 +184,7 @@ function createServer() {
                         res.end(
                             JSON.stringify({
                                 chatId: chat.id,
-                                quetzalChatId: response.data.chat_id,
+                                quetzalChatId: response.data.quetzal_chat_id,
                                 currentParticipant:
                                     preferredRole === "User"
                                         ? participant1
@@ -186,13 +234,17 @@ function createServer() {
 
                 try {
                     const response = await axios.post(
-                        "https://api.getquetzal.com/api/chat/message",
+                        "https://api.getquetzal.com/api/chat/messages/new",
                         {
-                            content: msg.text,
-                            participant: msg.participantId.toString(),
-                            timestamp: msg.timestamp,
                             chat_id: chat.quetzalChatId,
-                            hash: dbMessage.id,
+                            messages: [
+                                {
+                                    hash: dbMessage.id,
+                                    content: msg.text,
+                                    timestamp: msg.timestamp,
+                                    participant: msg.participantId.toString(),
+                                },
+                            ],
                         },
                         {
                             headers: {
@@ -202,14 +254,31 @@ function createServer() {
                         }
                     );
 
-                    webSocketServer.broadcast(
-                        JSON.stringify({
-                            type: "translationFinished",
-                            message_ids: [dbMessage.id],
-                            translations: response.data.translations,
-                            result: "ok",
-                        })
-                    );
+                    if (
+                        response.data.result === "ok" &&
+                        response.data.messages &&
+                        response.data.messages.length
+                    ) {
+                        webSocketServer.broadcast(
+                            JSON.stringify({
+                                type: "translationFinished",
+                                message_ids: [dbMessage.id],
+                                translations:
+                                    response.data.messages[0].translations,
+                                result: "ok",
+                            })
+                        );
+                    } else {
+                        webSocketServer.broadcast(
+                            JSON.stringify({
+                                type: "translationFinished",
+                                message_ids: [dbMessage.id],
+                                result:
+                                    response.data.message ||
+                                    "Translation error",
+                            })
+                        );
+                    }
                 } catch (error) {
                     console.error("Error sending message to API:", error);
 
@@ -230,8 +299,4 @@ function createServer() {
     });
 
     httpServer.listen(3005, () => console.log("Listening on port 3005"));
-}
-
-function fetchMessages(chatId) {
-    return Message.findAll({ where: { chatId } });
 }
