@@ -8,7 +8,7 @@ const sequelize = new Sequelize(process.env.DATABASE_URL);
 
 const Message = sequelize.define("Message", {
     participantId: Sequelize.DataTypes.STRING,
-    text: Sequelize.DataTypes.STRING,
+    text: Sequelize.DataTypes.TEXT,
     timestamp: Sequelize.DataTypes.DATE,
     chatId: Sequelize.DataTypes.INTEGER,
 });
