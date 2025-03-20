@@ -69,7 +69,7 @@ body {
   /* Chat messages */
   .chat-messages {
     flex: 1;
-    padding: 20px;
+    padding: 0 20px 20px 20px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
@@ -374,12 +374,6 @@ body {
     border-right: 1px solid #ddd;
 }
 
-.chat-messages {
-    flex-grow: 1;
-    padding: 20px;
-    overflow-y: auto;
-}
-
 .chat-input {
     display: flex;
     padding: 10px;
@@ -497,4 +491,29 @@ body {
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+}
+
+.translation-banner {
+    position: sticky;
+    top: 0;
+    padding: 28px 18px;
+    background-color: white;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.translation-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.translation-text .heading {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.translation-text button {
+    margin-left: 8px;
 }

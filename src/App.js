@@ -26,7 +26,7 @@ function App() {
     const [messagesToShowOriginal, setMessagesToShowOriginal] = useState([]);
     const [translatedMessages, setTranslatedMessages] = useState([]);
     const [translationOn, setTranslationOn] = useState(
-        localStorage.getItem("translationOn") || false
+        localStorage.getItem("translationOn") || true
     );
     const [preferredLanguage, setPreferredLanguage] = useState(
         localStorage.getItem("preferredLanguage") || "en-US"
@@ -112,15 +112,12 @@ function App() {
         ) => {
             if (
                 !newChatId ||
-                !selectedRole ||
-                isLoadingMore ||
-                !hasMoreMessages
+                !selectedRole
             )
                 return;
 
             setIsLoadingMore(true);
             const container = messagesContainerRef.current;
-            const previousHeight = container ? container.scrollHeight : 0; // Save current height
 
             try {
                 // Step 1: Fetch messages from our backend
@@ -162,7 +159,7 @@ function App() {
                     "chat_id",
                     data.quetzalChatId
                 );
-                translationUrl.searchParams.append("wait", "true");
+                translationUrl.searchParams.append("wait", true);
 
                 // Instead of pagination, send specific message IDs
                 messageIds.forEach((id) =>
@@ -272,7 +269,7 @@ function App() {
                 setTimeout(() => {
                     if (container) {
                         container.scrollTop =
-                            container.scrollHeight - previousHeight;
+                            container.scrollHeight;
                     }
                 }, 0);
             } catch (error) {
@@ -281,7 +278,7 @@ function App() {
                 setIsLoadingMore(false);
             }
         },
-        [isLoadingMore, hasMoreMessages]
+        []
     );
 
     const handleScroll = useCallback(() => {
@@ -389,6 +386,10 @@ function App() {
                 .then((res) => res.json())
                 .then((data) => {
                     console.log("Chat updated:", data);
+
+                    setTranslatedMessages([]);
+                    setHasMoreMessages(true);
+                    setIsLoadingMore(false);
 
                     fetchMessages(
                         chatId,
@@ -505,22 +506,54 @@ function App() {
                                     ref={messagesContainerRef}
                                     onScroll={handleScroll}
                                 >
-                                    <div className="default-message-container">
-                                        <div className="default-message">
-                                            <p>
-                                                <strong>New:</strong> Send and
-                                                receive messages in your native
-                                                language.
-                                            </p>
-                                            <button
-                                                onClick={() => {
-                                                    setShowUserSettingsPage(
-                                                        true
-                                                    );
-                                                }}
+                                    <div className="translation-banner">
+                                        <div className="translation-icon">
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                viewBox="0 0 16 16"
+                                                width="2em"
+                                                height="2em"
                                             >
-                                                Try it now
-                                            </button>
+                                                <g fill="currentColor">
+                                                    <path d="M4.545 6.714L4.11 8H3l1.862-5h1.284L8 8H6.833l-.435-1.286zm1.634-.736L5.5 3.956h-.049l-.679 2.022z"></path>
+                                                    <path d="M0 2a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v3h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-3H2a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zm7.138 9.995q.289.451.63.846c-.748.575-1.673 1.001-2.768 1.292c.178.217.451.635.555.867c1.125-.359 2.08-.844 2.886-1.494c.777.665 1.739 1.165 2.93 1.472c.133-.254.414-.673.629-.89c-1.125-.253-2.057-.694-2.82-1.284c.681-.747 1.222-1.651 1.621-2.757H14V8h-3v1.047h.765c-.318.844-.74 1.546-1.272 2.13a6 6 0 0 1-.415-.492a2 2 0 0 1-.94.31"></path>
+                                                </g>
+                                            </svg>
+                                        </div>
+                                        <div className="translation-text">
+                                            <div className="heading">
+                                                Translation on
+                                            </div>
+                                            <div>
+                                                Messages in this chat will be
+                                                translated to{" "}
+                                                {(() => {
+                                                    const locale =
+                                                        new Intl.Locale(
+                                                            preferredLanguage
+                                                        );
+                                                    const languageCode =
+                                                        locale.language;
+                                                    const languageNames =
+                                                        new Intl.DisplayNames(
+                                                            ["en"],
+                                                            { type: "language" }
+                                                        );
+                                                    return languageNames.of(
+                                                        languageCode
+                                                    );
+                                                })()}
+                                                .
+                                                <button
+                                                    onClick={() =>
+                                                        setShowUserSettingsPage(
+                                                            true
+                                                        )
+                                                    }
+                                                >
+                                                    Change language
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                     {isLoadingMore && (
