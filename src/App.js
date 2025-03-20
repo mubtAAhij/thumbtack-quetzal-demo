@@ -23,6 +23,7 @@ function App() {
             : undefined
     );
 
+    const [messagesToShowOriginal, setMessagesToShowOriginal] = useState([]);
     const [translatedMessages, setTranslatedMessages] = useState([]);
     const [translationOn, setTranslationOn] = useState(
         localStorage.getItem("translationOn") || false
@@ -73,6 +74,7 @@ function App() {
                     {
                         ...newMessage,
                         id: msg.messageId,
+                        translated: false,
                     },
                 ]);
             } else if (msg.type === "translationFinished") {
@@ -83,6 +85,8 @@ function App() {
                         if (msg.message_ids.includes(message.id)) {
                             return {
                                 ...message,
+                                translated: true,
+                                originalText: message.text,
                                 text:
                                     msg.translations[preferredLanguage] ||
                                     message.text,
@@ -184,7 +188,7 @@ function App() {
                 // Step 3: Identify missing translations
                 const missingMessages = data.messages.filter(
                     (msg) =>
-                        Number(msg.participantId) !== currentParticipant.id &&
+                        Number(msg.participantId) !== data.participant.id &&
                         (!translationsMap.has(Number(msg.id)) ||
                             !translationsMap.get(Number(msg.id))[
                                 newPreferredLanguage
@@ -232,14 +236,16 @@ function App() {
                 const updatedMessages = data.messages.map((message) => {
                     return {
                         ...message,
+                        translated: true,
+                        originalText: message.text,
                         text:
-                            currentParticipant &&
+                            data.participant &&
                             translationsMap.has(Number(message.id)) &&
                             translationsMap.get(Number(message.id))[
                                 newPreferredLanguage
                             ] &&
                             Number(message.participantId) !==
-                                currentParticipant.id
+                                data.participant.id
                                 ? translationsMap.get(Number(message.id))[
                                       newPreferredLanguage
                                   ]
@@ -275,7 +281,7 @@ function App() {
                 setIsLoadingMore(false);
             }
         },
-        [isLoadingMore, hasMoreMessages, currentParticipant]
+        [isLoadingMore, hasMoreMessages]
     );
 
     const handleScroll = useCallback(() => {
@@ -535,13 +541,62 @@ function App() {
                                                 key={index}
                                             >
                                                 <span className="message-content">
-                                                    {message["text"]}
+                                                    {messagesToShowOriginal.includes(
+                                                        message.id
+                                                    )
+                                                        ? message[
+                                                              "originalText"
+                                                          ]
+                                                        : message["text"]}
                                                 </span>
                                                 <span className="message-timestamp">
                                                     {formatTime(
                                                         message["timestamp"]
                                                     )}
                                                 </span>
+                                                {Number(
+                                                    message["participantId"]
+                                                ) !== currentParticipant.id ? (
+                                                    <div className="message-status">
+                                                        {message.translated ===
+                                                        false ? (
+                                                            <div className="spinner"></div>
+                                                        ) : messagesToShowOriginal.includes(
+                                                              message.id
+                                                          ) ? (
+                                                            <button
+                                                                className="show-original"
+                                                                onClick={() =>
+                                                                    setMessagesToShowOriginal(
+                                                                        messagesToShowOriginal.filter(
+                                                                            (
+                                                                                msg
+                                                                            ) =>
+                                                                                msg !==
+                                                                                message.id
+                                                                        )
+                                                                    )
+                                                                }
+                                                            >
+                                                                Show translation
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                className="show-original"
+                                                                onClick={() =>
+                                                                    setMessagesToShowOriginal(
+                                                                        [
+                                                                            ...messagesToShowOriginal,
+                                                                            message.id,
+                                                                        ]
+                                                                    )
+                                                                }
+                                                            >
+                                                                Show original
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                ) : null}
                                             </div>
                                         )
                                     )}
