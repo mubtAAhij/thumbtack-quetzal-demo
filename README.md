@@ -1,5 +1,5 @@
-## Building a Realtime Chat App with React, Node.js, and PostgreSQL
-This project is a simple example of how to build chat application with Node.js, React, Websocket, and PostgreSQL.
+## Quetzal React Chat SDK Demo Project
+This project is a simple example of a messaging webapp with Websockets that has been transformed to use Quetzal to translate messages.
 
 ### Requirements
 - PostgreSQL database
