@@ -3,8 +3,24 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import arthur from "./arthur.jpg";
 import billy from "./billy.jpg";
 import UserSettingsPage from "./UserSettingsPage";
+import {
+    QuetzalMessageDisplayState,
+    useQuetzalChat,
+} from "@quetzallabs/react-chat-sdk";
 
 function App() {
+    const {
+        setUpChat,
+        maybeUpdateChat,
+        fetchTranslationsByExternalIdAndStore,
+        translateBatchMessagesAndStore,
+        getTranslationForCurrentParticipant,
+        setCurrentParticipantId,
+        setTranslatedMessageDisplayState,
+        translatedMessageDisplayStates,
+        showDisplayStatusChangeButtons,
+    } = useQuetzalChat();
+
     const [tempChatId, setTempChatId] = useState("");
     const [chatId, setChatId] = useState(
         localStorage.getItem("chatId") || undefined
@@ -23,7 +39,6 @@ function App() {
             : undefined
     );
 
-    const [messagesToShowOriginal, setMessagesToShowOriginal] = useState([]);
     const [translatedMessages, setTranslatedMessages] = useState([]);
     const [translationOn, setTranslationOn] = useState(
         localStorage.getItem("translationOn") || true
@@ -40,21 +55,25 @@ function App() {
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const messagesContainerRef = useRef(null);
 
-    const createChat = useCallback((role) => {
-        fetch(`http://localhost:3005/newChat?preferredRole=${role}`)
-            .then((res) => res.json())
-            .then((data) => {
-                setCurrentParticipant(data.currentParticipant);
-                setChatId(data.chatId);
-                setQuetzalChatId(data.quetzalChatId);
-                localStorage.setItem(
-                    "currentParticipant",
-                    JSON.stringify(data.currentParticipant)
-                );
-                localStorage.setItem("chatId", data.chatId);
-                localStorage.setItem("quetzalChatId", data.quetzalChatId);
-            });
-    }, []);
+    const createChat = useCallback(
+        (role) => {
+            fetch(`http://localhost:3005/newChat?preferredRole=${role}`)
+                .then((res) => res.json())
+                .then((data) => {
+                    setCurrentParticipant(data.currentParticipant);
+                    setCurrentParticipantId(data.currentParticipant.id);
+                    setChatId(data.chatId);
+                    setQuetzalChatId(data.quetzalChatId);
+                    localStorage.setItem(
+                        "currentParticipant",
+                        JSON.stringify(data.currentParticipant)
+                    );
+                    localStorage.setItem("chatId", data.chatId);
+                    localStorage.setItem("quetzalChatId", data.quetzalChatId);
+                });
+        },
+        [setCurrentParticipantId]
+    );
 
     useEffect(() => {
         socket.current = new WebSocket("ws://localhost:3005");
@@ -110,24 +129,18 @@ function App() {
             newPreferredLanguage,
             before = null
         ) => {
-            if (
-                !newChatId ||
-                !selectedRole
-            )
-                return;
+            if (!newChatId || !selectedRole) return;
 
             setIsLoadingMore(true);
             const container = messagesContainerRef.current;
 
             try {
-                // Step 1: Fetch messages from our backend
+                // Step 1: Fetch raw messages from your backend
                 const url = new URL("http://localhost:3005/messages");
                 url.searchParams.append("chatId", newChatId);
                 url.searchParams.append("selectedRole", selectedRole);
                 url.searchParams.append("limit", "10");
-                if (before) {
-                    url.searchParams.append("before", before);
-                }
+                if (before) url.searchParams.append("before", before);
 
                 const res = await fetch(url);
                 const data = await res.json();
@@ -137,6 +150,7 @@ function App() {
 
                 setQuetzalChatId(data.quetzalChatId);
                 setCurrentParticipant(data.participant);
+                setCurrentParticipantId(data.participant.id);
                 localStorage.setItem("quetzalChatId", data.quetzalChatId);
                 localStorage.setItem(
                     "currentParticipant",
@@ -148,128 +162,64 @@ function App() {
                     return;
                 }
 
-                // Extract message IDs for Quetzal API
-                const messageIds = data.messages.map((msg) => msg.id);
-
-                // Step 2: Fetch translations from Quetzal API
-                const translationUrl = new URL(
-                    `https://api.getquetzal.com/api/chat/messages/get`
-                );
-                translationUrl.searchParams.append(
-                    "chat_id",
-                    data.quetzalChatId
-                );
-                translationUrl.searchParams.append("wait", true);
-
-                // Instead of pagination, send specific message IDs
-                messageIds.forEach((id) =>
-                    translationUrl.searchParams.append("message_id", id)
-                );
-
-                const translationRes = await fetch(translationUrl, {
-                    method: "GET",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "api-key": "QTZL_2V266U004U857OOISBY1M8",
+                // Step 2: Maybe update chat settings based on preferred language
+                await maybeUpdateChat([
+                    {
+                        externalId: data.participant.id.toString(),
+                        locale: newPreferredLanguage,
                     },
-                });
+                ]);
 
-                const response = await translationRes.json();
-                const translationsMap = new Map(
-                    (response.messages || []).map((msg) => [
-                        Number(msg.external_id),
-                        msg.translations,
-                    ])
+                // Step 3: Fetch existing translations
+                const messageIds = data.messages.map((msg) => msg.id);
+                const { missing } = await fetchTranslationsByExternalIdAndStore(
+                    messageIds
                 );
 
-                // Step 3: Identify missing translations
-                const missingMessages = data.messages.filter(
-                    (msg) =>
-                        Number(msg.participantId) !== data.participant.id &&
-                        (!translationsMap.has(Number(msg.id)) ||
-                            !translationsMap.get(Number(msg.id))[
-                                newPreferredLanguage
-                            ])
-                );
+                // Step 4: Request any missing translations
+                if (missing.length > 0) {
+                    const missingMessagePayload = data.messages
+                        .filter((msg) => missing.includes(msg.id))
+                        .map((msg) => ({
+                            hash: msg.id,
+                            content: msg.text,
+                            participant: msg.participantId,
+                        }));
 
-                // If there are missing translations, request them via /messages/new
-                if (missingMessages.length > 0) {
-                    console.log(
-                        "Requesting new translations for:",
-                        missingMessages
-                    );
-
-                    const newTranslationsRes = await fetch(
-                        "https://api.getquetzal.com/api/chat/messages/new",
-                        {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json",
-                                "api-key": "QTZL_2V266U004U857OOISBY1M8",
-                            },
-                            body: JSON.stringify({
-                                chat_id: data.quetzalChatId,
-                                messages: missingMessages.map((msg) => ({
-                                    hash: msg.id,
-                                    content: msg.text,
-                                    participant: msg.participantId,
-                                })),
-                            }),
-                        }
-                    );
-
-                    const newTranslationsData = await newTranslationsRes.json();
-                    if (newTranslationsData.result === "ok") {
-                        newTranslationsData.messages.forEach((msg) => {
-                            translationsMap.set(
-                                Number(msg.hash),
-                                msg.translations
-                            );
-                        });
-                    }
+                    await translateBatchMessagesAndStore(missingMessagePayload);
                 }
 
-                // Step 4: Process messages with translations
-                const updatedMessages = data.messages.map((message) => {
+                // Step 5: Build final message list with translations injected
+                const finalMessages = data.messages.map((msg) => {
+                    const { text: translatedText, available } =
+                        getTranslationForCurrentParticipant(msg.id);
+
                     return {
-                        ...message,
+                        ...msg,
+                        originalText: msg.text,
+                        text: available ? translatedText : msg.text,
                         translated: true,
-                        originalText: message.text,
-                        text:
-                            data.participant &&
-                            translationsMap.has(Number(message.id)) &&
-                            translationsMap.get(Number(message.id))[
-                                newPreferredLanguage
-                            ] &&
-                            Number(message.participantId) !==
-                                data.participant.id
-                                ? translationsMap.get(Number(message.id))[
-                                      newPreferredLanguage
-                                  ]
-                                : message.text,
                     };
                 });
 
                 setTranslatedMessages((prevMessages) => {
                     const oldMessages = prevMessages.filter(
-                        (msg) => !updatedMessages.some((m) => m.id === msg.id)
+                        (msg) => !finalMessages.some((m) => m.id === msg.id)
                     );
-                    return [...updatedMessages, ...oldMessages];
+                    return [...finalMessages, ...oldMessages];
                 });
 
-                if (updatedMessages.length > 0) {
-                    setEarliestMessageTime(updatedMessages[0].timestamp);
+                if (finalMessages.length > 0) {
+                    setEarliestMessageTime(finalMessages[0].timestamp);
                 }
 
-                // Stop loading more if fewer than limit
-                if (updatedMessages.length < 10) {
+                if (finalMessages.length < 10) {
                     setHasMoreMessages(false);
                 }
 
                 setTimeout(() => {
                     if (container) {
-                        container.scrollTop =
-                            container.scrollHeight;
+                        container.scrollTop = container.scrollHeight;
                     }
                 }, 0);
             } catch (error) {
@@ -278,7 +228,13 @@ function App() {
                 setIsLoadingMore(false);
             }
         },
-        []
+        [
+            setCurrentParticipantId,
+            maybeUpdateChat,
+            fetchTranslationsByExternalIdAndStore,
+            translateBatchMessagesAndStore,
+            getTranslationForCurrentParticipant,
+        ]
     );
 
     const handleScroll = useCallback(() => {
@@ -322,9 +278,18 @@ function App() {
     }, [handleScroll]);
 
     useEffect(() => {
-        if (chatId && !translatedMessages.length && currentParticipant) {
-            fetchMessages(chatId, currentParticipant.role, preferredLanguage);
-        }
+        const fetchInitialData = async () => {
+            if (chatId && !translatedMessages.length && currentParticipant) {
+                localStorage.setItem("translationOn", true);
+                await setUpChat(chatId);
+                fetchMessages(
+                    chatId,
+                    currentParticipant.role,
+                    preferredLanguage
+                );
+            }
+        };
+        fetchInitialData();
     }, []);
 
     const sendMessage = useCallback(() => {
@@ -357,7 +322,7 @@ function App() {
     };
 
     const handleSettingsUpdated = useCallback(
-        (newSettings) => {
+        async (newSettings) => {
             setTranslationOn(newSettings.translationOn);
             localStorage.setItem("translationOn", newSettings.translationOn);
             if (newSettings.preferredLanguage) {
@@ -366,48 +331,19 @@ function App() {
                     "preferredLanguage",
                     newSettings.preferredLanguage
                 );
-            }
-            return fetch("https://api.getquetzal.com/api/chat/update", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "api-key": "QTZL_2V266U004U857OOISBY1M8",
-                },
-                body: JSON.stringify({
-                    chat_id: quetzalChatId,
-                    participants: [
-                        {
-                            id: currentParticipant.id.toString(),
-                            locale: newSettings.preferredLanguage,
-                        },
-                    ],
-                }),
-            })
-                .then((res) => res.json())
-                .then((data) => {
-                    console.log("Chat updated:", data);
 
-                    setTranslatedMessages([]);
-                    setHasMoreMessages(true);
-                    setIsLoadingMore(false);
+                setTranslatedMessages([]);
+                setHasMoreMessages(true);
+                setIsLoadingMore(false);
 
-                    fetchMessages(
-                        chatId,
-                        selectedRole,
-                        newSettings.preferredLanguage
-                    );
-                })
-                .catch((err) =>
-                    console.error("Error updating chat to API:", err)
+                fetchMessages(
+                    chatId,
+                    selectedRole,
+                    newSettings.preferredLanguage
                 );
+            }
         },
-        [
-            chatId,
-            currentParticipant?.id,
-            fetchMessages,
-            quetzalChatId,
-            selectedRole,
-        ]
+        [chatId, fetchMessages, selectedRole]
     );
 
     if (showUserSettingsPage)
@@ -574,9 +510,10 @@ function App() {
                                                 key={index}
                                             >
                                                 <span className="message-content">
-                                                    {messagesToShowOriginal.includes(
+                                                    {translatedMessageDisplayStates.get(
                                                         message.id
-                                                    )
+                                                    ) ===
+                                                    QuetzalMessageDisplayState.ORIGINAL
                                                         ? message[
                                                               "originalText"
                                                           ]
@@ -589,25 +526,22 @@ function App() {
                                                 </span>
                                                 {Number(
                                                     message["participantId"]
-                                                ) !== currentParticipant.id ? (
+                                                ) !== currentParticipant.id &&
+                                                showDisplayStatusChangeButtons ? (
                                                     <div className="message-status">
                                                         {message.translated ===
                                                         false ? (
                                                             <div className="spinner"></div>
-                                                        ) : messagesToShowOriginal.includes(
+                                                        ) : translatedMessageDisplayStates.get(
                                                               message.id
-                                                          ) ? (
+                                                          ) ===
+                                                          QuetzalMessageDisplayState.ORIGINAL ? (
                                                             <button
                                                                 className="show-original"
                                                                 onClick={() =>
-                                                                    setMessagesToShowOriginal(
-                                                                        messagesToShowOriginal.filter(
-                                                                            (
-                                                                                msg
-                                                                            ) =>
-                                                                                msg !==
-                                                                                message.id
-                                                                        )
+                                                                    setTranslatedMessageDisplayState(
+                                                                        message.id,
+                                                                        QuetzalMessageDisplayState.TRANSLATED
                                                                     )
                                                                 }
                                                             >
@@ -617,11 +551,9 @@ function App() {
                                                             <button
                                                                 className="show-original"
                                                                 onClick={() =>
-                                                                    setMessagesToShowOriginal(
-                                                                        [
-                                                                            ...messagesToShowOriginal,
-                                                                            message.id,
-                                                                        ]
+                                                                    setTranslatedMessageDisplayState(
+                                                                        message.id,
+                                                                        QuetzalMessageDisplayState.ORIGINAL
                                                                     )
                                                                 }
                                                             >

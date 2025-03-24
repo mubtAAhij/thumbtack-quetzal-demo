@@ -142,10 +142,15 @@ function createServer() {
                     role: "Pro",
                 });
 
+                const chat = await Chat.create({
+                    participantIds: [participant1.id, participant2.id],
+                });
+
                 axios
                     .post(
                         "https://api.getquetzal.com/api/chat/new",
                         {
+                            external_id: chat.id,
                             participants: [
                                 {
                                     id: participant1.id,
@@ -167,16 +172,13 @@ function createServer() {
                         }
                     )
                     .then(async (response) => {
-                        const chat = await Chat.create({
-                            participantIds: [participant1.id, participant2.id],
-                            quetzalChatId: response.data.quetzal_chat_id,
-                        });
-
+                        chat.quetzalChatId = response.data.quetzal_chat_id;
                         participant1.chatIds = [chat.id];
                         participant2.chatIds = [chat.id];
 
                         participant1.save();
                         participant2.save();
+                        chat.save();
 
                         res.writeHead(200, {
                             "Content-Type": "application/json",
