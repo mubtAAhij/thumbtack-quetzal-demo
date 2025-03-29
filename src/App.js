@@ -598,12 +598,13 @@ function App() {
                     <p>Join as User and chat with Arthur:</p>
                     <div
                         className="user-list-option"
-                        onClick={() => {
+                        onClick={async () => {
                             localStorage.setItem("selectedRole", "User");
                             setSelectedRole("User");
                             if (tempChatId) {
                                 localStorage.setItem("chatId", tempChatId);
                                 setChatId(tempChatId);
+                                await setUpChat(tempChatId);
                                 fetchMessages(tempChatId, "User", "en-US");
                                 setTempChatId("");
                             } else {
@@ -621,12 +622,13 @@ function App() {
                     <p>Join as Pro and chat with Billy:</p>
                     <div
                         className="user-list-option"
-                        onClick={() => {
+                        onClick={async () => {
                             localStorage.setItem("selectedRole", "Pro");
                             setSelectedRole("Pro");
                             if (tempChatId) {
                                 localStorage.setItem("chatId", tempChatId);
                                 setChatId(tempChatId);
+                                await setUpChat(tempChatId);
                                 fetchMessages(tempChatId, "Pro", "en-US");
                                 setTempChatId("");
                             } else {
