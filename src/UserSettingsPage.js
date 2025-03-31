@@ -46,6 +46,9 @@ const UserSettingsPage = ({
                             <option value="es-ES">Spanish</option>
                             <option value="pt-PT">Portuguese</option>
                             <option value="zh-CN">Chinese (Simplified)</option>
+                            <option value="it-IT">Italian</option>
+                            <option value="ko-KR">Korean</option>
+                            <option value="fr-FR">French</option>
                         </select>
                     </>
                 ) : null}
