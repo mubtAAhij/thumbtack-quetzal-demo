@@ -70,9 +70,10 @@ function App() {
                     );
                     localStorage.setItem("chatId", data.chatId);
                     localStorage.setItem("quetzalChatId", data.quetzalChatId);
+                    setUpChat(data.chatId);
                 });
         },
-        [setCurrentParticipantId]
+        [setCurrentParticipantId, setUpChat]
     );
 
     useEffect(() => {
