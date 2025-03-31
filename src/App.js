@@ -157,11 +157,6 @@ function App() {
                     JSON.stringify(data.participant)
                 );
 
-                if (data.messages.length === 0) {
-                    setHasMoreMessages(false);
-                    return;
-                }
-
                 // Step 2: Maybe update chat settings based on preferred language
                 await maybeUpdateChat([
                     {
@@ -169,6 +164,11 @@ function App() {
                         locale: newPreferredLanguage,
                     },
                 ]);
+
+                if (data.messages.length === 0) {
+                    setHasMoreMessages(false);
+                    return;
+                }
 
                 // Step 3: Fetch existing translations
                 const messageIds = data.messages.map((msg) => msg.id);
@@ -600,6 +600,7 @@ function App() {
                         className="user-list-option"
                         onClick={async () => {
                             localStorage.setItem("selectedRole", "User");
+                            localStorage.setItem("translationOn", true);
                             setSelectedRole("User");
                             if (tempChatId) {
                                 localStorage.setItem("chatId", tempChatId);
@@ -624,6 +625,7 @@ function App() {
                         className="user-list-option"
                         onClick={async () => {
                             localStorage.setItem("selectedRole", "Pro");
+                            localStorage.setItem("translationOn", true);
                             setSelectedRole("Pro");
                             if (tempChatId) {
                                 localStorage.setItem("chatId", tempChatId);
